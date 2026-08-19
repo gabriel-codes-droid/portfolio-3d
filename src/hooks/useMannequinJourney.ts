@@ -1,0 +1,131 @@
+import { useCallback, useRef, useState } from 'react';
+import { gsap } from 'gsap';
+import { Vector3 } from 'three';
+import type { Group } from 'three';
+import type { MannequinPhase } from '../components/Mannequin';
+
+interface UseMannequinJourneyOptions {
+  /** World position of the moon's seated viewing area, e.g. [0, -1.5, 3] */
+  seatPosition: [number, number, number];
+}
+
+/**
+ * Orchestrates the mannequin's journey. Starts idle (standing still) until
+ * `launch()` is called — then it hops ONCE across the cube field, ignites its
+ * jetpack immediately after the hop, and flies down to the moon's seat.
+ * The whole jump-to-flight sequence now takes ~950ms instead of ~4s.
+ *
+ * `returnHome()` reverses the trip. Both accept a callback fired at the
+ * cinematic mid-flight moment, so the caller can cut the screen/scene
+ * exactly when the mannequin is airborne rather than before he's moved.
+ */
+export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions) {
+  const [phase, setPhase] = useState<MannequinPhase>('idle');
+  const wrapperRef = useRef<Group>(null);
+  // The visual model moves between cube tops locally. Keep its latest world
+  // position so the wrapper can take over seamlessly when flight begins.
+  const hopPositionRef = useRef(new Vector3());
+  const hopTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const launch = useCallback(
+    (onMidFlight?: () => void) => {
+      if (hopTimeout.current) clearTimeout(hopTimeout.current);
+      setPhase('hopping');
+
+      // Give the viewer time to see a complete, readable hop across the
+      // cube field before the jetpack sequence starts.
+      hopTimeout.current = setTimeout(() => {
+        const wrapper = wrapperRef.current;
+        if (!wrapper) {
+          onMidFlight?.();
+          setPhase('seated');
+          return;
+        }
+
+        wrapper.position.copy(hopPositionRef.current);
+
+        const tl = gsap.timeline({ onComplete: () => setPhase('seated') });
+
+        // Hop up and forward (one arc, fast)
+        tl.to(wrapper.position, {
+          y: wrapper.position.y + 2.2,
+          x: wrapper.position.x + 2.8,
+          z: wrapper.position.z + 1.2,
+          duration: 0.28,
+          ease: 'power2.out',
+          onStart: () => setPhase('launching'),
+        });
+        // Land the hop
+        tl.to(wrapper.position, {
+          y: wrapper.position.y - 2.2,
+          x: wrapper.position.x + 5.6,
+          z: wrapper.position.z + 2.4,
+          duration: 0.28,
+          ease: 'power2.in',
+        });
+        // Ignite jetpack + mid-flight callback (this is where screen cuts)
+        tl.call(() => {
+          setPhase('flying');
+          onMidFlight?.();
+        });
+        // Jetpack fly up and back toward the moon seat
+        tl.to(wrapper.position, {
+          y: seatPosition[1] + 14,
+          x: seatPosition[0] + 1.5,
+          z: seatPosition[2] + 18,
+          duration: 0.7,
+          ease: 'power1.in',
+        });
+        // Descend onto the seat
+        tl.to(wrapper.position, {
+          x: seatPosition[0],
+          y: seatPosition[1],
+          z: seatPosition[2],
+          duration: 0.9,
+          ease: 'power3.out',
+        });
+        // Settle rotation
+        tl.to(wrapper.rotation, { x: 0, duration: 0.4, ease: 'power2.out' }, '-=0.4');
+      }, 3600);
+    },
+    [seatPosition]
+  );
+
+  const returnHome = useCallback((onMidFlight?: () => void) => {
+    if (hopTimeout.current) clearTimeout(hopTimeout.current);
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      onMidFlight?.();
+      setPhase('idle');
+      return;
+    }
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        setPhase('hopping');
+        setTimeout(() => setPhase('idle'), 1400);
+      },
+    });
+
+    tl.to(wrapper.position, {
+      z: seatPosition[2] + 15,
+      y: seatPosition[1] + 3,
+      duration: 0.8,
+      ease: 'power2.out',
+      onStart: () => setPhase('launching'),
+    });
+    tl.call(() => {
+      setPhase('flying');
+      onMidFlight?.();
+    });
+    tl.to(wrapper.position, {
+      x: 0,
+      y: 0,
+      z: 0,
+      duration: 1.4,
+      ease: 'power3.inOut',
+    });
+  }, [seatPosition]);
+
+  return { phase, wrapperRef, hopPositionRef, launch, returnHome };
+}
