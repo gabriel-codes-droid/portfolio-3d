@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Stars, useGLTF } from '@react-three/drei';
 import type { Group } from 'three';
@@ -10,19 +10,57 @@ interface IntroSceneProps {
   onCubeTopsReady?: (points: [number, number, number][]) => void;
 }
 
+type CubeSpec = {
+  position: [number, number, number];
+  size: number;
+  color: string;
+  speed: number;
+  index: number;
+};
+
+// The route is deliberately separate from the decorative formation. The
+// character always moves left-to-right across these platforms in view.
+const HOP_WAYPOINTS: [number, number, number][] = [
+  [-4.4, -2.1, 2.3],
+  [-2.4, -1.45, 1.35],
+  [-0.35, -2.05, 0.4],
+  [1.7, -1.4, -0.55],
+  [3.9, -1.9, -1.5],
+];
+
+const HOP_CUBES: CubeSpec[] = HOP_WAYPOINTS.map((point, index) => ({
+  position: [point[0], point[1] - 0.8, point[2]],
+  size: 1.6,
+  color: index % 2 === 0 ? '#8b5cf6' : '#22d3ee',
+  speed: 0.34 + index * 0.05,
+  index: 100 + index,
+}));
+
+// A hand-composed, balanced frame around the route. No random placement.
+const CUBE_FORMATION: CubeSpec[] = [
+  { position: [-7.2, 3.7, -5.8], size: 2.6, color: '#7c3aed', speed: 0.24, index: 1 },
+  { position: [-4.9, 2.0, -6.4], size: 1.25, color: '#a855f7', speed: 0.31, index: 2 },
+  { position: [-2.6, 4.2, -8.2], size: 1.75, color: '#6366f1', speed: 0.27, index: 3 },
+  { position: [2.7, 4.0, -8.5], size: 1.9, color: '#8b5cf6', speed: 0.29, index: 4 },
+  { position: [6.5, 3.0, -6.1], size: 2.35, color: '#22d3ee', speed: 0.23, index: 5 },
+  { position: [7.4, -1.7, -7.4], size: 1.35, color: '#818cf8', speed: 0.32, index: 6 },
+  { position: [-7.5, -2.0, -7.8], size: 1.45, color: '#a855f7', speed: 0.3, index: 7 },
+  { position: [4.8, 0.3, -5.3], size: 1.05, color: '#67e8f9', speed: 0.36, index: 8 },
+  { position: [-4.7, -0.1, -5.7], size: 0.95, color: '#c084fc', speed: 0.38, index: 9 },
+];
+
 function CyberCubeBackdrop() {
   const { scene } = useGLTF('/models/cyber-cubes.glb');
   const model = useMemo(() => clone(scene), [scene]);
 
   // The supplied cube asset is a visual anchor behind the playable hopping
   // lane, while the individual cube components remain the exact platforms.
-  return <primitive object={model} position={[0, -2.5, -10]} scale={1.2} dispose={null} />;
+  return <primitive object={model} position={[0, 7, -24]} scale={0.28} dispose={null} />;
 }
 
 useGLTF.preload('/models/cyber-cubes.glb');
 
 export default function IntroScene({ onCubeTopsReady }: IntroSceneProps) {
-  const cubeCount = 40;
   const sceneGroup = useRef<Group>(null);
   const notified = useRef(false);
   const { gl } = useThree();
@@ -76,51 +114,18 @@ export default function IntroScene({ onCubeTopsReady }: IntroSceneProps) {
     };
   }, [gl]);
 
-  const cubes = useMemo(
-    () =>
-      Array.from({ length: cubeCount }, (_, i) => ({
-        position: [
-          (Math.random() - 0.5) * 30,
-          (Math.random() - 0.5) * 20,
-          (Math.random() - 0.5) * 20,
-        ] as [number, number, number],
-        size: 0.5 + Math.random() * 1.5,
-        color: `hsl(${Math.random() * 60 + 240}, 70%, 60%)`,
-        speed: 0.5 + Math.random() * 1.5,
-        index: i,
-      })),
-    []
-  );
-
-  // A handful of cube-top waypoints (near the camera) for the mannequin to hop across
-  const hopWaypoints = useMemo<[number, number, number][]>(() => {
-    return cubes
-      .filter((c) => c.position[2] > -4 && c.position[2] < 10)
-      .slice(0, 6)
-      .map((c) => [c.position[0], c.position[1] + c.size / 2 + 0.2, c.position[2]]);
-  }, [cubes]);
-
   useEffect(() => {
-    if (hopWaypoints.length > 0 && !notified.current) {
+    if (!notified.current) {
       notified.current = true;
-      onCubeTopsReady?.(hopWaypoints);
+      onCubeTopsReady?.(HOP_WAYPOINTS);
     }
-  }, [hopWaypoints, onCubeTopsReady]);
+  }, [onCubeTopsReady]);
 
-  const orbCount = 5;
-  const orbs = useMemo(
-    () =>
-      Array.from({ length: orbCount }, () => ({
-        position: [
-          (Math.random() - 0.5) * 30,
-          (Math.random() - 0.5) * 20,
-          (Math.random() - 0.5) * 20,
-        ] as [number, number, number],
-        size: 0.2 + Math.random() * 0.3,
-        color: `hsl(${Math.random() * 60 + 180}, 80%, 60%)`,
-      })),
-    []
-  );
+  const orbs = [
+    { position: [-5.8, 0.6, -4.5] as [number, number, number], size: 0.28, color: '#a855f7' },
+    { position: [5.6, 1.1, -4.8] as [number, number, number], size: 0.24, color: '#22d3ee' },
+    { position: [0, 3.6, -7.2] as [number, number, number], size: 0.2, color: '#818cf8' },
+  ];
 
   useFrame((state) => {
     if (!sceneGroup.current) return;
@@ -151,16 +156,16 @@ export default function IntroScene({ onCubeTopsReady }: IntroSceneProps) {
       <pointLight position={[-10, -10, -10]} intensity={0.3} color="#f59e0b" />
 
       {/* Floating Cubes */}
-      <CyberCubeBackdrop />
-      {cubes.map((cube) => (
-        <FloatingCube
-          key={cube.index}
-          position={cube.position}
-          size={cube.size}
-          color={cube.color}
-          speed={cube.speed}
-          index={cube.index}
-        />
+      {/* The large supplied cube model streams independently; its loading
+          state must not blank the animated platform lane. */}
+      <Suspense fallback={null}>
+        <CyberCubeBackdrop />
+      </Suspense>
+      {HOP_CUBES.map((cube) => (
+        <FloatingCube key={`hop-${cube.index}`} {...cube} />
+      ))}
+      {CUBE_FORMATION.map((cube) => (
+        <FloatingCube key={cube.index} {...cube} />
       ))}
 
       {/* Energy Orbs */}

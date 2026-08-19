@@ -1,5 +1,6 @@
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { Environment } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { gsap } from 'gsap';
 import IntroScene from './scenes/IntroScene';
@@ -30,7 +31,9 @@ const MOON_SEAT_POSITION: [number, number, number] = [
 // Just beside the seat, same distance from center so it also rests on the surface
 const JETPACK_DROP_POSITION: [number, number, number] = [
   MOON_SEAT_POSITION[0] + 0.85,
-  MOON_SEAT_POSITION[1] - 0.05,
+  // The supplied model's origin is at its feet only after accounting for
+  // its 0.42 display scale, so lower it onto the curved moon surface.
+  MOON_SEAT_POSITION[1] - 0.42,
   MOON_SEAT_POSITION[2] - 0.15,
 ];
 
@@ -113,6 +116,9 @@ function App() {
       style={{ width: '100%', height: '100%' }}
       >
         <ambientLight intensity={0.22} color="#3730a3" />
+        {/* Supplied night-sky HDRI: gives the glass cubes, suit, moon, and
+            planets natural environment reflections without hiding the stars. */}
+        <Environment files="/models/night-sky.exr" background={false} environmentIntensity={0.38} />
         {/* Cool key light from above */}
         <directionalLight position={[10, 12, 6]} intensity={0.8} color="#c7d2fe" />
         {/* Warm rim/fill from behind-left, purple accent to match the crystal cubes */}
@@ -122,22 +128,20 @@ function App() {
 
         <CameraRig view={currentView} />
 
-        <Suspense fallback={null}>
-          {currentView === 'intro' && <IntroScene onCubeTopsReady={setHopWaypoints} />}
-          {currentView === 'projects' && (
-            <ProjectSystems
-              onProjectSelect={handleSelectProject}
-              onBack={handleNavBack}
-              onNavReady={setNavApi}
-            />
-          )}
+        {currentView === 'intro' && <IntroScene onCubeTopsReady={setHopWaypoints} />}
+        {currentView === 'projects' && (
+          <ProjectSystems
+            onProjectSelect={handleSelectProject}
+            onBack={handleNavBack}
+            onNavReady={setNavApi}
+          />
+        )}
 
-          {/* Persistent mannequin: hops on the cubes, jetpacks down to the moon */}
+        {/* Loading character files must never hide the cube/planet scene. */}
+        <Suspense fallback={null}>
           <group ref={mannequinWrapperRef}>
             <Mannequin phase={mannequinPhase} hopPoints={hopWaypoints} hopPositionRef={hopPositionRef} />
           </group>
-
-          {/* Ditched jetpack — appears once the mannequin lands and sits */}
           <Jetpack position={JETPACK_DROP_POSITION} visible={mannequinPhase === 'seated'} />
         </Suspense>
 

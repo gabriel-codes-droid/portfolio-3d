@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
@@ -33,10 +33,11 @@ export default function Jetpack({ position, visible }: JetpackProps) {
   });
 
   const { scene } = useGLTF('/models/jetpack/source/Jetpack.glb');
+  const model = useMemo(() => scene.clone(true), [scene]);
 
   return (
-    <group ref={group} position={position} rotation={[0, 0, Math.PI / 2.4]}>
-      <primitive object={scene} scale={0.16} dispose={null} />
+    <group ref={group} position={position} rotation={[0, Math.PI / 2, 0]}>
+      <primitive object={model} scale={0.42} dispose={null} />
     </group>
   );
 }

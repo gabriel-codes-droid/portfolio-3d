@@ -28,7 +28,9 @@ const PLANET_COLORS: Record<string, string> = {
 };
 
 export default function ProjectSystems({ onProjectSelect, onNavReady }: ProjectSystemsProps) {
-  const { groupRef, rotateBy } = usePlanetNavigation(0.0012);
+  // The gallery stays in its requested horizontal composition. Individual
+  // planets still rotate in Planet.tsx, while buttons only browse on demand.
+  const { groupRef, rotateBy } = usePlanetNavigation(0);
   const { flyTo } = useCameraAnimation();
 
   // A composed horizontal project line, directly in the seated mannequin's

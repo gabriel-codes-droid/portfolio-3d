@@ -18,7 +18,7 @@ interface MannequinProps {
 const BODY_COLOR = '#e2e8f0';
 const SUIT_COLOR = '#a78bfa';
 const VISOR_COLOR = '#22d3ee';
-const HOP_DURATION = 1.9; // seconds per hop — slow, deliberate hops
+const HOP_DURATION = 0.68; // crosses the visible cube lane before launch
 
 const CHARACTER_URL = '/models/character.glb';
 
@@ -33,12 +33,26 @@ function AnimatedCharacter({ phase }: Pick<MannequinProps, 'phase'>) {
 
   const character = useMemo(() => clone(scene), [scene]);
   // FBX exports commonly reuse a clip name (for example, "mixamo.com").
-  // Clone and name each one here so useAnimations keeps every phase instead
-  // of silently replacing earlier actions with the last-loaded file.
+  // Clone, retarget and name each one here so useAnimations keeps every
+  // phase. The supplied FBX files use `mixamorigHips` + centimetres while
+  // the supplied GLB uses `mixamorig:Hips` + metres.
   const clipsByPhase = useMemo(() => {
     const namedClip = (asset: THREE.Group, name: string) => {
       const clip = asset.animations[0]?.clone();
-      if (clip) clip.name = name;
+      if (!clip) return undefined;
+
+      clip.name = name;
+      clip.tracks.forEach((track) => {
+        // Make Mixamo FBX bone targets resolve against the GLB skeleton.
+        track.name = track.name.replace(/^mixamorig(?=[A-Z])/, 'mixamorig:');
+        // FBX position keys are centimetres. Convert only translations;
+        // quaternion values must be left untouched.
+        if (track.name.endsWith('.position')) {
+          for (let index = 0; index < track.values.length; index += 1) {
+            track.values[index] *= 0.01;
+          }
+        }
+      });
       return clip;
     };
     return {
@@ -67,6 +81,26 @@ function AnimatedCharacter({ phase }: Pick<MannequinProps, 'phase'>) {
   return (
     <group ref={root} scale={0.78}>
       <primitive object={character} dispose={null} />
+    </group>
+  );
+}
+
+function FlightJetpack() {
+  const { scene } = useGLTF('/models/jetpack/source/Jetpack.glb');
+  const model = useMemo(() => scene.clone(true), [scene]);
+
+  return (
+    <group position={[0, -0.25, -0.3]} scale={0.7}>
+      <primitive object={model} dispose={null} />
+      <mesh position={[-0.05, -0.95, -0.13]} rotation={[Math.PI, 0, 0]}>
+        <coneGeometry args={[0.09, 0.7, 10]} />
+        <meshBasicMaterial color="#f97316" transparent opacity={0.92} />
+      </mesh>
+      <mesh position={[-0.05, -0.95, 0.13]} rotation={[Math.PI, 0, 0]}>
+        <coneGeometry args={[0.07, 0.55, 10]} />
+        <meshBasicMaterial color="#67e8f9" transparent opacity={0.9} />
+      </mesh>
+      <pointLight position={[-0.05, -0.75, 0]} color="#fb923c" intensity={3} distance={4} />
     </group>
   );
 }
@@ -164,6 +198,7 @@ export default function Mannequin({ phase, hopPoints, hopPositionRef }: Mannequi
       <group rotation={[leaning ? Math.PI / 4 : 0, seated ? Math.PI : 0, 0]}>
         {/* Supplied rigged character plus its idle/jump/flying/sitting clips. */}
         <AnimatedCharacter phase={phase} />
+        {hasJetpack && <FlightJetpack />}
 
         {/* Retained as an unloaded-asset-safe fallback; the supplied model is
             rendered above in normal operation. */}

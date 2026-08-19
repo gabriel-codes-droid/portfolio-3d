@@ -32,7 +32,8 @@ export default function FloatingCube({
 }: FloatingCubeProps) {
   const mesh = useRef<Mesh>(null);
   const core = useRef<Mesh>(null);
-  const randomFactor = Math.random() * 0.1 + 0.05;
+  // Stable per-cube drift keeps the composed layout intact after re-renders.
+  const randomFactor = 0.055 + (index % 5) * 0.014;
 
   useFrame((state) => {
     if (mesh.current) {
