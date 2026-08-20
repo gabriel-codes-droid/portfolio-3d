@@ -16,7 +16,9 @@ export default function CameraRig({ view }: CameraRigProps) {
     if (view === 'intro') {
       reset([0, 0, 10], [0, 0, 0], 1.6);
     } else {
-      reset([0, 3, 26], [0, -4, 0], 2.4);
+      // Zoomed in noticeably closer than before (was z=26) so the moon and
+      // seated character read clearly instead of looking tiny and distant.
+      reset([0, 1.5, 15], [0, -1, -2], 2.2);
     }
   }, [view, reset]);
 

@@ -1,6 +1,6 @@
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, useGLTF } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { gsap } from 'gsap';
 import IntroScene from './scenes/IntroScene';
@@ -37,6 +37,10 @@ const JETPACK_DROP_POSITION: [number, number, number] = [
   MOON_SEAT_POSITION[2] - 0.15,
 ];
 
+useGLTF.preload('/models/moon.glb');
+useGLTF.preload('/models/character.glb');
+useGLTF.preload('/models/jetpack/source/Jetpack.glb');
+
 function App() {
   const [currentView, setCurrentView] = useState<'intro' | 'projects'>('intro');
   const [showProjectPanel, setShowProjectPanel] = useState(false);
@@ -51,7 +55,7 @@ function App() {
 
   useEffect(() => {
     // Fade in animation
-    const timeline = gsap.timeline({ delay: 0.5 });
+    const timeline = gsap.timeline({ delay: 0.2 });
     timeline.from([
       { opacity: 0, y: 20 },
       { opacity: 0, y: -20 }
@@ -112,13 +116,19 @@ function App() {
       {/* Canvas for 3D Scene */}
       <Canvas
       camera={{ position: [0, 0, 10], fov: 60 }}
-      dpr={[1, 2.5]}
+      dpr={[1, 2]}
       style={{ width: '100%', height: '100%' }}
       >
         <ambientLight intensity={0.22} color="#3730a3" />
         {/* Supplied night-sky HDRI: gives the glass cubes, suit, moon, and
-            planets natural environment reflections without hiding the stars. */}
-        <Environment files="/models/night-sky.exr" background={false} environmentIntensity={0.38} />
+            planets natural environment reflections without hiding the stars.
+            Isolated in its own Suspense so this 70MB file loading in the
+            background never blocks the cubes/scene from appearing instantly —
+            this was the actual cause of the "delay before cubes show up" bug. */}
+        <Suspense fallback={null}>
+          <Environment files="/models/night-sky.exr" background={false} environmentIntensity={1.0} />
+        </Suspense>
+
         {/* Cool key light from above */}
         <directionalLight position={[10, 12, 6]} intensity={0.8} color="#c7d2fe" />
         {/* Warm rim/fill from behind-left, purple accent to match the crystal cubes */}
@@ -130,11 +140,13 @@ function App() {
 
         {currentView === 'intro' && <IntroScene onCubeTopsReady={setHopWaypoints} />}
         {currentView === 'projects' && (
-          <ProjectSystems
-            onProjectSelect={handleSelectProject}
-            onBack={handleNavBack}
-            onNavReady={setNavApi}
-          />
+          <Suspense fallback={null}>
+            <ProjectSystems
+              onProjectSelect={handleSelectProject}
+              onBack={handleNavBack}
+              onNavReady={setNavApi}
+            />
+          </Suspense>
         )}
 
         {/* Loading character files must never hide the cube/planet scene. */}
@@ -142,7 +154,7 @@ function App() {
           <group ref={mannequinWrapperRef}>
             <Mannequin phase={mannequinPhase} hopPoints={hopWaypoints} hopPositionRef={hopPositionRef} />
           </group>
-          <Jetpack position={JETPACK_DROP_POSITION} visible={mannequinPhase === 'seated'} />
+          <Jetpack position={JETPACK_DROP_POSITION} visible={mannequinPhase === 'landing' || mannequinPhase === 'seated'} />
         </Suspense>
 
         {/* Real bloom on emissive/bright surfaces (cube cores, planet glow,

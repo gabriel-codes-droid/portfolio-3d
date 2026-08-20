@@ -11,9 +11,9 @@ interface UseMannequinJourneyOptions {
 
 /**
  * Orchestrates the mannequin's journey. Starts idle (standing still) until
- * `launch()` is called — then it hops ONCE across the cube field, ignites its
+ * `launch()` is called — then it hops across the cube field, ignites its
  * jetpack immediately after the hop, and flies down to the moon's seat.
- * The whole jump-to-flight sequence now takes ~950ms instead of ~4s.
+ * The whole jump-to-flight sequence takes ~950ms instead of ~4s.
  *
  * `returnHome()` reverses the trip. Both accept a callback fired at the
  * cinematic mid-flight moment, so the caller can cut the screen/scene
@@ -27,13 +27,17 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
   const hopPositionRef = useRef(new Vector3());
   const hopTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Launch: hop → jetpack ignite → slow fly → land on moon ──────────
   const launch = useCallback(
     (onMidFlight?: () => void) => {
       if (hopTimeout.current) clearTimeout(hopTimeout.current);
       setPhase('hopping');
 
-      // Give the viewer time to see a complete, readable hop across the
-      // cube field before the jetpack sequence starts.
+      // Let one full hop cycle actually play before launching. This MUST
+      // be >= Mannequin.tsx's HOP_DURATION (1.9s) — it was previously 400ms,
+      // which cut away ~21% into the very first hop arc, so the hop was
+      // essentially invisible. 2000ms lets exactly one complete, readable
+      // hop land before the jetpack ignites.
       hopTimeout.current = setTimeout(() => {
         const wrapper = wrapperRef.current;
         if (!wrapper) {
@@ -46,7 +50,7 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
 
         const tl = gsap.timeline({ onComplete: () => setPhase('seated') });
 
-        // Hop up and forward (one arc, fast)
+        // Hop up with jetpack ignition
         tl.to(wrapper.position, {
           y: wrapper.position.y + 2.2,
           x: wrapper.position.x + 2.8,
@@ -63,69 +67,103 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
           duration: 0.28,
           ease: 'power2.in',
         });
-        // Ignite jetpack + mid-flight callback (this is where screen cuts)
+        // Jetpack ignites — mid-flight callback (this is where screen cuts)
         tl.call(() => {
           setPhase('flying');
           onMidFlight?.();
         });
-        // Jetpack fly up and back toward the moon seat
+        // Slow, visible fly up toward the moon — slowed from 1.3s to 1.9s
+        // so the flying pose + jetpack flames are clearly seen, not a blur.
         tl.to(wrapper.position, {
           y: seatPosition[1] + 14,
           x: seatPosition[0] + 1.5,
           z: seatPosition[2] + 18,
-          duration: 0.7,
-          ease: 'power1.in',
+          duration: 1.9,
+          ease: 'power1.inOut',
         });
         // Descend onto the seat
         tl.to(wrapper.position, {
           x: seatPosition[0],
           y: seatPosition[1],
           z: seatPosition[2],
-          duration: 0.9,
+          duration: 1.5,
           ease: 'power3.out',
         });
+        // Jetpack detaches, play landing animation, then settle
+        tl.call(() => {
+          setPhase('landing');
+        });
         // Settle rotation
-        tl.to(wrapper.rotation, { x: 0, duration: 0.4, ease: 'power2.out' }, '-=0.4');
-      }, 3600);
+        tl.to(wrapper.rotation, {
+          x: 0,
+          duration: 0.4,
+          ease: 'power2.out',
+        }, '-=0.4');
+      }, 2000);
     },
     [seatPosition]
   );
 
-  const returnHome = useCallback((onMidFlight?: () => void) => {
-    if (hopTimeout.current) clearTimeout(hopTimeout.current);
-    const wrapper = wrapperRef.current;
-    if (!wrapper) {
-      onMidFlight?.();
-      setPhase('idle');
-      return;
-    }
+  // ── Return Home: launch → fly back → land on cubes ──────────────────
+  const returnHome = useCallback(
+    (onMidFlight?: () => void) => {
+      if (hopTimeout.current) clearTimeout(hopTimeout.current);
+      const wrapper = wrapperRef.current;
+      if (!wrapper) {
+        onMidFlight?.();
+        setPhase('idle');
+        return;
+      }
 
-    const tl = gsap.timeline({
-      onComplete: () => {
-        setPhase('hopping');
-        setTimeout(() => setPhase('idle'), 1400);
-      },
-    });
+      const tl = gsap.timeline({
+        onComplete: () => {
+          setPhase('hopping');
+          setTimeout(() => setPhase('idle'), 2000);
+        },
+      });
 
-    tl.to(wrapper.position, {
-      z: seatPosition[2] + 15,
-      y: seatPosition[1] + 3,
-      duration: 0.8,
-      ease: 'power2.out',
-      onStart: () => setPhase('launching'),
-    });
-    tl.call(() => {
-      setPhase('flying');
-      onMidFlight?.();
-    });
-    tl.to(wrapper.position, {
-      x: 0,
-      y: 0,
-      z: 0,
-      duration: 1.4,
-      ease: 'power3.inOut',
-    });
-  }, [seatPosition]);
+      // Jetpack reattaches + take off
+      tl.to(wrapper.position, {
+        z: seatPosition[2] + 15,
+        y: seatPosition[1] + 3,
+        duration: 0.8,
+        ease: 'power2.out',
+        onStart: () => setPhase('launching'),
+      });
+      // Mid-flight callback (screen cuts here)
+      tl.call(() => {
+        setPhase('flying');
+        onMidFlight?.();
+      });
+      // Slow, visible fly back — 1.9s to match launch
+      tl.to(wrapper.position, {
+        x: 0,
+        y: 2,
+        z: -2,
+        duration: 1.9,
+        ease: 'power1.inOut',
+      });
+      // Jet dive back to cube tops
+      tl.to(wrapper.position, {
+        x: 0,
+        y: 0,
+        z: 0,
+        duration: 0.8,
+        ease: 'power3.in',
+      });
+      // Land with a hop, then let one full hop cycle read before settling
+      // back to idle (same 2000ms reasoning as the launch sequence above).
+      tl.call(() => {
+        setPhase('landing');
+      });
+      tl.to(wrapper.rotation, {
+        x: 0,
+        duration: 0.3,
+        ease: 'power2.out',
+      }, '+=0.1');
+    },
+    [seatPosition]
+  );
 
   return { phase, wrapperRef, hopPositionRef, launch, returnHome };
 }

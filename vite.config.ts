@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 3000,
-    open: true, // auto-opens the browser
+    open: true, 
+    strictPort: false, // 🚀 THIS IS THE FIX. Forces Vite to ignore zombie locks and skip to 5174, 5175, etc.
   },
 });

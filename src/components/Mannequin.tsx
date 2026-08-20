@@ -1,143 +1,216 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { MutableRefObject } from 'react';
-import { useAnimations, useFBX, useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
+import { useGLTF, useAnimations } from '@react-three/drei';
 import * as THREE from 'three';
-import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { useMixamoAnimations, type MixamoClipName } from '../hooks/useMixamoAnimations';
 
-export type MannequinPhase = 'idle' | 'hopping' | 'launching' | 'flying' | 'seated';
+export type MannequinPhase = 'idle' | 'hopping' | 'launching' | 'flying' | 'landing' | 'seated';
 
 interface MannequinProps {
   phase: MannequinPhase;
-  /** Waypoints (cube tops) the mannequin hops between during the intro. */
+  /** Waypoints (real cube-platform positions) the character hops between during the intro. */
   hopPoints: [number, number, number][];
-  /** Latest local cube-top location, handed to the flight wrapper on launch. */
-  hopPositionRef: MutableRefObject<THREE.Vector3>;
+  /** Written every frame while hopping, so useMannequinJourney can hand off
+   * seamlessly from the local hop position into its GSAP flight tween. */
+  hopPositionRef?: React.MutableRefObject<THREE.Vector3>;
 }
 
-const BODY_COLOR = '#e2e8f0';
-const SUIT_COLOR = '#a78bfa';
-const VISOR_COLOR = '#22d3ee';
-const HOP_DURATION = 0.68; // crosses the visible cube lane before launch
+const HOP_DURATION = 1.9; // seconds per hop — slow, deliberate hops
+// Bone the jetpack rides on. The character.glb bones use the "mixamorig"
+// prefix WITHOUT a colon (FBXLoader / the export strips it), so we match
+// against those exact names. Falls back gracefully to other spine levels.
+const BACK_BONE_CANDIDATES = ['mixamorigSpine2', 'mixamorigSpine1', 'mixamorigSpine'];
+const JETPACK_PATH = '/models/jetpack/source/Jetpack.glb';
 
-const CHARACTER_URL = '/models/character.glb';
+// Module-level constant, NOT recreated per-render — this used to be defined
+// inside the component body, which meant the crossfade effect's dependency
+// array saw a new object identity on every render (even unrelated ones) and
+// kept calling .reset() on the current animation, snapping it back to frame
+// 0 before it could ever visibly play. That's what was causing the frozen
+// T-pose look.
+const PHASE_TO_CLIP: Record<MannequinPhase, MixamoClipName | null> = {
+  idle: 'idle',
+  hopping: 'hop',
+  launching: 'flying',
+  flying: 'flying',
+  landing: 'landing',
+  seated: 'seated',
+};
 
-function AnimatedCharacter({ phase }: Pick<MannequinProps, 'phase'>) {
-  const root = useRef<THREE.Group>(null);
-  const { scene } = useGLTF(CHARACTER_URL);
-  const idle = useFBX('/models/idle.fbx');
-  const jumping = useFBX('/models/jump.fbx');
-  const flying = useFBX('/models/flying.fbx');
-  const landing = useFBX('/models/landing.fbx');
-  const sitting = useFBX('/models/sitting.fbx');
-
-  const character = useMemo(() => clone(scene), [scene]);
-  // FBX exports commonly reuse a clip name (for example, "mixamo.com").
-  // Clone, retarget and name each one here so useAnimations keeps every
-  // phase. The supplied FBX files use `mixamorigHips` + centimetres while
-  // the supplied GLB uses `mixamorig:Hips` + metres.
-  const clipsByPhase = useMemo(() => {
-    const namedClip = (asset: THREE.Group, name: string) => {
-      const clip = asset.animations[0]?.clone();
-      if (!clip) return undefined;
-
-      clip.name = name;
-      clip.tracks.forEach((track) => {
-        // Make Mixamo FBX bone targets resolve against the GLB skeleton.
-        track.name = track.name.replace(/^mixamorig(?=[A-Z])/, 'mixamorig:');
-        // FBX position keys are centimetres. Convert only translations;
-        // quaternion values must be left untouched.
-        if (track.name.endsWith('.position')) {
-          for (let index = 0; index < track.values.length; index += 1) {
-            track.values[index] *= 0.01;
-          }
-        }
-      });
-      return clip;
-    };
-    return {
-      idle: namedClip(idle, 'portfolio-idle'),
-      hopping: namedClip(jumping, 'portfolio-hop'),
-      launching: namedClip(flying, 'portfolio-launch'),
-      flying: namedClip(flying, 'portfolio-flying'),
-      seated: namedClip(sitting, 'portfolio-seated') ?? namedClip(landing, 'portfolio-landing'),
-    };
-  }, [idle, jumping, flying, landing, sitting]);
-  const clips = useMemo(
-    () => Object.values(clipsByPhase).filter((clip): clip is THREE.AnimationClip => Boolean(clip)),
-    [clipsByPhase]
-  );
-  const { actions } = useAnimations(clips, root);
-
-  useEffect(() => {
-    const name = clipsByPhase[phase]?.name;
-    const action = name ? actions[name] : undefined;
-    action?.reset().fadeIn(0.22).play();
-    return () => {
-      action?.fadeOut(0.18);
-    };
-  }, [actions, clipsByPhase, phase]);
-
-  return (
-    <group ref={root} scale={0.78}>
-      <primitive object={character} dispose={null} />
-    </group>
-  );
+function findBackBone(root: THREE.Object3D): THREE.Object3D | null {
+  for (const name of BACK_BONE_CANDIDATES) {
+    const bone = root.getObjectByName(name);
+    if (bone) return bone;
+  }
+  return null;
 }
 
-function FlightJetpack() {
-  const { scene } = useGLTF('/models/jetpack/source/Jetpack.glb');
-  const model = useMemo(() => scene.clone(true), [scene]);
-
-  return (
-    <group position={[0, -0.25, -0.3]} scale={0.7}>
-      <primitive object={model} dispose={null} />
-      <mesh position={[-0.05, -0.95, -0.13]} rotation={[Math.PI, 0, 0]}>
-        <coneGeometry args={[0.09, 0.7, 10]} />
-        <meshBasicMaterial color="#f97316" transparent opacity={0.92} />
-      </mesh>
-      <mesh position={[-0.05, -0.95, 0.13]} rotation={[Math.PI, 0, 0]}>
-        <coneGeometry args={[0.07, 0.55, 10]} />
-        <meshBasicMaterial color="#67e8f9" transparent opacity={0.9} />
-      </mesh>
-      <pointLight position={[-0.05, -0.75, 0]} color="#fb923c" intensity={3} distance={4} />
-    </group>
-  );
+/** Hides any mesh in the jetpack model whose name suggests it's the bundled
+ * weapon prop rather than the jetpack itself. */
+function hideUnwantedProps(root: THREE.Object3D) {
+  root.traverse((child) => {
+    if (/bazooka|weapon/i.test(child.name)) {
+      child.visible = false;
+    }
+  });
 }
-
-useGLTF.preload(CHARACTER_URL);
 
 /**
- * A simple low-poly astronaut/mannequin built entirely from primitives
- * (no external model assets required). Stands still until the journey
- * starts, hops across the floating cube field, then ignites its jetpack
- * and flies down to the moon scene where it "sits" to watch the projects.
+ * Builds the jetpack flame meshes as Object3D so they can be parented
+ * directly under the spine bone (via the jetpack clone). This gives
+ * true skeletal attachment — flames move with the spine during the
+ * flying pose, not a fixed position on the character root.
  */
+function createFlameGroup(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'jetpack-flames';
+
+  const flameMatL = new THREE.MeshBasicMaterial({
+    color: '#67e8f9',
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const flameMatR = new THREE.MeshBasicMaterial({
+    color: '#a78bfa',
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const cone = new THREE.ConeGeometry(0.06, 0.35, 8);
+
+  const flameL = new THREE.Mesh(cone, flameMatL);
+  flameL.position.set(-0.12, -0.3, 0);
+  const flameR = new THREE.Mesh(cone, flameMatR);
+  flameR.position.set(0.12, -0.3, 0);
+
+  group.add(flameL, flameR);
+
+  const light = new THREE.PointLight('#67e8f9', 2, 2);
+  light.position.set(0, -0.35, 0);
+  group.add(light);
+
+  return group;
+}
+
 export default function Mannequin({ phase, hopPoints, hopPositionRef }: MannequinProps) {
   const group = useRef<THREE.Group>(null);
-  const flameL = useRef<THREE.Mesh>(null);
-  const flameR = useRef<THREE.Mesh>(null);
   const hopIndex = useRef(0);
   const hopStart = useRef<number | null>(null);
-  const previousPhase = useRef<MannequinPhase>(phase);
+
+  const { scene: characterScene, animations: characterBuiltinAnims } = useGLTF('/models/character.glb');
+  const { scene: jetpackScene } = useGLTF(JETPACK_PATH);
+  const clips = useMixamoAnimations();
+
+  // Clone the loaded scenes so multiple Mannequin instances (if ever) don't
+  // fight over the same Object3D graph.
+  const character = useMemo(() => characterScene.clone(true), [characterScene]);
+
+  // Build the jetpack model once, including flame meshes attached as children
+  // so they follow the spine bone's animated transform.
+  const jetpack = useMemo(() => {
+    const cloned = jetpackScene.clone(true);
+    hideUnwantedProps(cloned);
+    cloned.scale.setScalar(0.6);
+    cloned.position.set(0, 0, -0.05);
+    cloned.rotation.set(0, Math.PI, 0);
+
+    // Create the flame group and parent it under the jetpack so it inherits
+    // the spine bone's movement. The flames sit at the jetpack's exhaust.
+    const flames = createFlameGroup();
+    flames.position.set(0, 0.3, -0.02);
+    cloned.add(flames);
+
+    // Start with jetpack + flames hidden; they appear only during flying phases.
+    cloned.visible = false;
+    return cloned;
+  }, [jetpackScene]);
+
+  const { actions } = useAnimations(
+    useMemo(
+      () => [clips.idle, clips.hop, clips.flying, clips.landing, clips.seated, ...characterBuiltinAnims],
+      [clips, characterBuiltinAnims]
+    ),
+    character
+  );
 
   const points = useMemo(
     () => (hopPoints.length > 0 ? hopPoints : [[0, 0, 0] as [number, number, number]]),
     [hopPoints]
   );
 
+  // Attach the jetpack to the character's back bone once, so it inherits
+  // that bone's animated transform every frame for free (real skeletal
+  // attachment, not a manually-copied offset).
+  const backBone = useMemo(() => findBackBone(character), [character]);
+  useEffect(() => {
+    const parent = backBone ?? character;
+    parent.add(jetpack);
+    return () => {
+      parent.remove(jetpack);
+    };
+  }, [backBone, character, jetpack]);
+
+  // Toggle jetpack (model + flames) visibility based on phase.
+  // Jetpack is visible ONLY during launching & flying — it detaches
+  // during landing and is never worn during idle/seated/hopping.
+  const showJetpack = phase === 'launching' || phase === 'flying';
+  useEffect(() => {
+    if (jetpack) {
+      jetpack.visible = showJetpack;
+      // Also toggle the flame sub-group
+      const flames = jetpack.getObjectByName('jetpack-flames');
+      if (flames) {
+        flames.visible = showJetpack;
+      }
+    }
+  }, [phase, jetpack, showJetpack]);
+
+  // Crossfade between actions whenever the phase changes, instead of
+  // hard-cutting — this is what makes transitions read as "sophisticated"
+  // rather than a jump-cut between poses.
+  const activeAction = useRef<THREE.AnimationAction | null>(null);
+
+  useEffect(() => {
+    const clipName = PHASE_TO_CLIP[phase];
+    if (!clipName) return;
+    const next = actions[clipName];
+    if (!next) return;
+
+    next.reset();
+    next.setLoop(THREE.LoopRepeat, Infinity);
+    next.fadeIn(0.4);
+    next.play();
+
+    if (activeAction.current && activeAction.current !== next) {
+      activeAction.current.fadeOut(0.4);
+    }
+    activeAction.current = next;
+  }, [phase, actions]);
+
+  // Lean forward during flight for a game-like flying pose.
+  // Smoothed in useFrame below for a natural acceleration/deceleration.
+  const leaning = phase === 'flying' || phase === 'launching';
+
   useFrame((state) => {
     if (!group.current) return;
     const t = state.clock.getElapsedTime();
 
+    // Smooth lean during flight/idle for game-like responsiveness
+    const targetLean = leaning ? Math.PI / 5 : 0;
+    group.current.rotation.x += (targetLean - group.current.rotation.x) * 0.08;
+
     if (phase === 'idle') {
       hopStart.current = null;
       hopIndex.current = 0;
-      // Stand on the first waypoint with a gentle idle breathing bob
       const p0 = points[0];
-      group.current.position.set(p0[0], p0[1] + Math.sin(t * 1.5) * 0.03, p0[2]);
+      group.current.position.set(p0[0], p0[1], p0[2]);
+      // Subtle idle sway — slight breathing/bobbing
+      group.current.position.y += Math.sin(t * 2) * 0.01;
       group.current.rotation.z = 0;
-      hopPositionRef.current.copy(group.current.position);
+      hopPositionRef?.current.copy(group.current.position);
       return;
     }
 
@@ -165,118 +238,50 @@ export default function Mannequin({ phase, hopPoints, hopPositionRef }: Mannequi
       if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
         group.current.rotation.y = Math.atan2(dx, dz);
       }
-      group.current.rotation.z = Math.sin(progress * Math.PI) * 0.12;
-      hopPositionRef.current.copy(group.current.position);
+
+      // Report our local position so useMannequinJourney's launch() can pick
+      // up exactly where the hop left off when it seeds the wrapper's tween.
+      hopPositionRef?.current.copy(group.current.position);
+      return;
     }
 
-    // Jetpack flame flicker during launch/flight
-    if ((phase === 'launching' || phase === 'flying') && flameL.current && flameR.current) {
-      const flicker = 0.7 + Math.sin(t * 30) * 0.2 + Math.random() * 0.1;
-      flameL.current.scale.set(1, flicker, 1);
-      flameR.current.scale.set(1, flicker, 1);
+    // Every other phase (launching/flying/landing/seated) is driven entirely
+    // by the OUTER wrapper's GSAP tween in useMannequinJourney — this inner
+    // group must sit at local (0,0,0) so it doesn't add a leftover offset on
+    // top of the wrapper's position. Without this, the last hop's local
+    // offset stayed frozen here forever, shifting the character away from
+    // the actual moon seat position by that amount (why he looked like he
+    // was floating near the planets instead of sitting on the moon).
+    group.current.position.set(0, 0, 0);
+
+    // Jetpack flame flicker during launch/flight (driven via the bone-attached
+    // sub-mesh, so it automatically follows the spine bone's pose).
+    if ((phase === 'launching' || phase === 'flying') && jetpack) {
+      const flames = jetpack.getObjectByName('jetpack-flames') as THREE.Group | undefined;
+      if (flames) {
+        const flicker = 0.7 + Math.sin(t * 30) * 0.2 + Math.random() * 0.1;
+        flames.traverse((child) => {
+          if ((child as any).isMesh) {
+            const meshChild = child as any;
+            if (meshChild.material) {
+              if (Array.isArray(meshChild.material)) {
+                meshChild.material.forEach((m: any) => m.opacity = 0.85 * flicker);
+              } else {
+                meshChild.material.opacity = 0.85 * flicker;
+              }
+            }
+          }
+        });
+      }
     }
   });
 
-  useEffect(() => {
-    // Once the parent wrapper takes over for flight, clear the local cube
-    // offset so the moon landing resolves exactly at the computed seat point.
-    if (previousPhase.current === 'hopping' && phase !== 'hopping') {
-      group.current?.position.set(0, 0, 0);
-    }
-    previousPhase.current = phase;
-  }, [phase]);
-
-  const showFlame = phase === 'launching' || phase === 'flying';
-  const leaning = phase === 'flying' || phase === 'launching';
-  // Jetpack only appears right as he launches — matches "stands, then jumps
-  // and the jetpack appears" rather than wearing it the whole time.
-  const hasJetpack = phase === 'launching' || phase === 'flying';
-  const seated = phase === 'seated';
-
   return (
     <group ref={group}>
-      <group rotation={[leaning ? Math.PI / 4 : 0, seated ? Math.PI : 0, 0]}>
-        {/* Supplied rigged character plus its idle/jump/flying/sitting clips. */}
-        <AnimatedCharacter phase={phase} />
-        {hasJetpack && <FlightJetpack />}
-
-        {/* Retained as an unloaded-asset-safe fallback; the supplied model is
-            rendered above in normal operation. */}
-        <group visible={false}>
-        {/* Head */}
-        <mesh position={[0, 1.55, 0]}>
-          <sphereGeometry args={[0.22, 16, 16]} />
-          <meshStandardMaterial color={BODY_COLOR} roughness={0.4} />
-        </mesh>
-        {/* Visor */}
-        <mesh position={[0, 1.55, 0.18]}>
-          <sphereGeometry args={[0.14, 12, 12]} />
-          <meshStandardMaterial
-            color={VISOR_COLOR}
-            emissive={VISOR_COLOR}
-            emissiveIntensity={0.8}
-            transparent
-            opacity={0.85}
-          />
-        </mesh>
-        {/* Torso */}
-        <mesh position={[0, 1.05, 0]}>
-          <capsuleGeometry args={[0.22, 0.55, 4, 8]} />
-          <meshStandardMaterial color={SUIT_COLOR} roughness={0.5} metalness={0.2} />
-        </mesh>
-        {/* Arms */}
-        <mesh position={[-0.36, 1.05, 0]} rotation={[0, 0, 0.25]}>
-          <capsuleGeometry args={[0.08, 0.45, 4, 8]} />
-          <meshStandardMaterial color={BODY_COLOR} roughness={0.5} />
-        </mesh>
-        <mesh position={[0.36, 1.05, 0]} rotation={[0, 0, -0.25]}>
-          <capsuleGeometry args={[0.08, 0.45, 4, 8]} />
-          <meshStandardMaterial color={BODY_COLOR} roughness={0.5} />
-        </mesh>
-        {/* Legs */}
-        <mesh position={[-0.12, seated ? 0.55 : 0.4, seated ? 0.2 : 0]} rotation={[seated ? -Math.PI / 2.1 : 0, 0, 0]}>
-          <capsuleGeometry args={[0.09, 0.5, 4, 8]} />
-          <meshStandardMaterial color={SUIT_COLOR} roughness={0.5} />
-        </mesh>
-        <mesh position={[0.12, seated ? 0.55 : 0.4, seated ? 0.2 : 0]} rotation={[seated ? -Math.PI / 2.1 : 0, 0, 0]}>
-          <capsuleGeometry args={[0.09, 0.5, 4, 8]} />
-          <meshStandardMaterial color={SUIT_COLOR} roughness={0.5} />
-        </mesh>
-
-        {/* Jetpack — appears only when he's about to launch, ditched once seated */}
-        {hasJetpack && (
-          <>
-            <mesh position={[0, 1.1, -0.28]}>
-              <boxGeometry args={[0.42, 0.55, 0.2]} />
-              <meshStandardMaterial color="#1e293b" roughness={0.3} metalness={0.7} />
-            </mesh>
-            <mesh position={[-0.12, 0.78, -0.28]}>
-              <cylinderGeometry args={[0.07, 0.09, 0.18, 8]} />
-              <meshStandardMaterial color="#334155" metalness={0.8} roughness={0.2} />
-            </mesh>
-            <mesh position={[0.12, 0.78, -0.28]}>
-              <cylinderGeometry args={[0.07, 0.09, 0.18, 8]} />
-              <meshStandardMaterial color="#334155" metalness={0.8} roughness={0.2} />
-            </mesh>
-          </>
-        )}
-
-        {/* Jetpack flames */}
-        {showFlame && (
-          <>
-            <mesh ref={flameL} position={[-0.12, 0.6, -0.28]}>
-              <coneGeometry args={[0.06, 0.35, 8]} />
-              <meshBasicMaterial color="#67e8f9" transparent opacity={0.85} />
-            </mesh>
-            <mesh ref={flameR} position={[0.12, 0.6, -0.28]}>
-              <coneGeometry args={[0.06, 0.35, 8]} />
-              <meshBasicMaterial color="#a78bfa" transparent opacity={0.85} />
-            </mesh>
-            <pointLight position={[0, 0.6, -0.28]} color="#67e8f9" intensity={2} distance={2} />
-          </>
-        )}
-        </group>
-      </group>
+      <primitive object={character} scale={1} />
     </group>
   );
 }
+
+useGLTF.preload('/models/character.glb');
+useGLTF.preload(JETPACK_PATH);

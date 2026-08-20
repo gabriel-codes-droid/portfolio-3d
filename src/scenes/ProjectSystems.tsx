@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import * as THREE from 'three';
 import { Stars } from '@react-three/drei';
 import Moon from '../components/Moon';
 import Planet from '../components/Planet';
+import SketchfabPlanet from '../components/SketchfabPlanet';
 import { usePlanetNavigation } from '../hooks/usePlanetNavigation';
 import { useCameraAnimation } from '../hooks/useCameraAnimation';
 import { projects } from '../data/projects';
@@ -74,6 +75,18 @@ export default function ProjectSystems({ onProjectSelect, onNavReady }: ProjectS
 
       {/* Moon */}
       <Moon position={[0, -5, 0]} size={3} />
+
+      {/* Sketchfab planet embed — spins in place like the procedural planets.
+          Positioned in the upper portion of the scene so it's visible above
+          the moon without blocking the orbit group. */}
+      <Suspense fallback={null}>
+        <SketchfabPlanet
+          position={[0, 5.5, -6]}
+          size={1.4}
+          modelId="a0ad382f4d6c4cf190f5537e5248b33d"
+          title="Planet Reststop"
+        />
+      </Suspense>
 
       {/* Orbiting Planets — drag left/right (or use the arrow buttons) to browse, click to fly in */}
       <group ref={groupRef}>

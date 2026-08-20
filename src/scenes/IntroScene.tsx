@@ -1,9 +1,8 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Stars, useGLTF } from '@react-three/drei';
+import { Stars, useGLTF, useFBX } from '@react-three/drei';
 import type { Group } from 'three';
 import * as THREE from 'three';
-import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import FloatingCube from '../components/FloatingCube';
 
 interface IntroSceneProps {
@@ -20,12 +19,14 @@ type CubeSpec = {
 
 // The route is deliberately separate from the decorative formation. The
 // character always moves left-to-right across these platforms in view.
+// Gaps widened noticeably from the original tighter spacing (~2 units apart)
+// so each hop reads as a clear jump across a visible gap, not a small step.
 const HOP_WAYPOINTS: [number, number, number][] = [
-  [-4.4, -2.1, 2.3],
-  [-2.4, -1.45, 1.35],
-  [-0.35, -2.05, 0.4],
-  [1.7, -1.4, -0.55],
-  [3.9, -1.9, -1.5],
+  [-6.5, -2.1, 3.2],
+  [-3.3, -1.45, 1.6],
+  [-0.1, -2.05, 0.3],
+  [3.1, -1.4, -1.1],
+  [6.4, -1.9, -2.7],
 ];
 
 const HOP_CUBES: CubeSpec[] = HOP_WAYPOINTS.map((point, index) => ({
@@ -37,28 +38,28 @@ const HOP_CUBES: CubeSpec[] = HOP_WAYPOINTS.map((point, index) => ({
 }));
 
 // A hand-composed, balanced frame around the route. No random placement.
+// Spread out further from the route so the backdrop cubes don't crowd the
+// hopping platforms visually.
 const CUBE_FORMATION: CubeSpec[] = [
-  { position: [-7.2, 3.7, -5.8], size: 2.6, color: '#7c3aed', speed: 0.24, index: 1 },
-  { position: [-4.9, 2.0, -6.4], size: 1.25, color: '#a855f7', speed: 0.31, index: 2 },
-  { position: [-2.6, 4.2, -8.2], size: 1.75, color: '#6366f1', speed: 0.27, index: 3 },
-  { position: [2.7, 4.0, -8.5], size: 1.9, color: '#8b5cf6', speed: 0.29, index: 4 },
-  { position: [6.5, 3.0, -6.1], size: 2.35, color: '#22d3ee', speed: 0.23, index: 5 },
-  { position: [7.4, -1.7, -7.4], size: 1.35, color: '#818cf8', speed: 0.32, index: 6 },
-  { position: [-7.5, -2.0, -7.8], size: 1.45, color: '#a855f7', speed: 0.3, index: 7 },
-  { position: [4.8, 0.3, -5.3], size: 1.05, color: '#67e8f9', speed: 0.36, index: 8 },
-  { position: [-4.7, -0.1, -5.7], size: 0.95, color: '#c084fc', speed: 0.38, index: 9 },
+  { position: [-9.5, 4.6, -7.5], size: 2.6, color: '#7c3aed', speed: 0.24, index: 1 },
+  { position: [-6.4, 2.5, -8.3], size: 1.25, color: '#a855f7', speed: 0.31, index: 2 },
+  { position: [-3.4, 5.3, -10.6], size: 1.75, color: '#6366f1', speed: 0.27, index: 3 },
+  { position: [3.5, 5.1, -11.0], size: 1.9, color: '#8b5cf6', speed: 0.29, index: 4 },
+  { position: [8.5, 3.9, -7.9], size: 2.35, color: '#22d3ee', speed: 0.23, index: 5 },
+  { position: [9.6, -2.2, -9.6], size: 1.35, color: '#818cf8', speed: 0.32, index: 6 },
+  { position: [-9.8, -2.6, -10.1], size: 1.45, color: '#a855f7', speed: 0.3, index: 7 },
+  { position: [6.2, 0.4, -6.9], size: 1.05, color: '#67e8f9', speed: 0.36, index: 8 },
+  { position: [-6.1, -0.1, -7.4], size: 0.95, color: '#c084fc', speed: 0.38, index: 9 },
 ];
 
-function CyberCubeBackdrop() {
-  const { scene } = useGLTF('/models/cyber-cubes.glb');
-  const model = useMemo(() => clone(scene), [scene]);
-
-  // The supplied cube asset is a visual anchor behind the playable hopping
-  // lane, while the individual cube components remain the exact platforms.
-  return <primitive object={model} position={[0, 7, -24]} scale={0.28} dispose={null} />;
-}
-
-useGLTF.preload('/models/cyber-cubes.glb');
+// Start loading all Mixamo animation FBX files at app startup so there's
+// zero delay the moment the mannequin needs them during launch. Paths must
+// match useMixamoAnimations.ts exactly (that hook is the source of truth).
+useFBX.preload('/models/idle.fbx');
+useFBX.preload('/models/jump.fbx');
+useFBX.preload('/models/flying.fbx');
+useFBX.preload('/models/landing.fbx');
+useFBX.preload('/models/sitting.fbx');
 
 export default function IntroScene({ onCubeTopsReady }: IntroSceneProps) {
   const sceneGroup = useRef<Group>(null);
@@ -155,12 +156,6 @@ export default function IntroScene({ onCubeTopsReady }: IntroSceneProps) {
       <pointLight position={[0, 10, 10]} intensity={0.5} color="#a5b4fc" />
       <pointLight position={[-10, -10, -10]} intensity={0.3} color="#f59e0b" />
 
-      {/* Floating Cubes */}
-      {/* The large supplied cube model streams independently; its loading
-          state must not blank the animated platform lane. */}
-      <Suspense fallback={null}>
-        <CyberCubeBackdrop />
-      </Suspense>
       {HOP_CUBES.map((cube) => (
         <FloatingCube key={`hop-${cube.index}`} {...cube} />
       ))}
