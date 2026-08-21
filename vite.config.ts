@@ -11,7 +11,8 @@ export default defineConfig({
   },
   server: {
     host: true,
-    open: true, 
-    strictPort: false, // 🚀 THIS IS THE FIX. Forces Vite to ignore zombie locks and skip to 5174, 5175, etc.
+    open: true,
+    port: 5174,
+    strictPort: false,
   },
 });
