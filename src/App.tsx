@@ -11,6 +11,7 @@ import ProjectCard from './components/ProjectCard';
 import CameraRig from './components/CameraRig';
 import Mannequin from './components/Mannequin';
 import Jetpack from './components/Jetpack';
+import HDRIEnvironment from './components/HDRIEnvironment';
 import { useMannequinJourney } from './hooks/useMannequinJourney';
 import type { Project } from './data/projects';
 
@@ -39,7 +40,7 @@ const JETPACK_DROP_POSITION: [number, number, number] = [
 
 useGLTF.preload('/models/moon.glb');
 useGLTF.preload('/models/character.glb');
-useGLTF.preload('/models/jetpack/source/Jetpack.glb');
+useGLTF.preload('/models/jetpack/Jetpack.glb');
 
 function App() {
   const [currentView, setCurrentView] = useState<'intro' | 'projects'>('intro');

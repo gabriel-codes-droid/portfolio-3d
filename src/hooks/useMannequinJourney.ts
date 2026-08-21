@@ -34,10 +34,9 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
       setPhase('hopping');
 
       // Let one full hop cycle actually play before launching. This MUST
-      // be >= Mannequin.tsx's HOP_DURATION (1.9s) — it was previously 400ms,
-      // which cut away ~21% into the very first hop arc, so the hop was
-      // essentially invisible. 2000ms lets exactly one complete, readable
-      // hop land before the jetpack ignites.
+      // be >= Mannequin.tsx's HOP_DURATION (now 3.0s, per request) — 3100ms
+      // lets exactly one complete, readable hop land before the jetpack
+      // ignites.
       hopTimeout.current = setTimeout(() => {
         const wrapper = wrapperRef.current;
         if (!wrapper) {
@@ -72,13 +71,13 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
           setPhase('flying');
           onMidFlight?.();
         });
-        // Slow, visible fly up toward the moon — slowed from 1.3s to 1.9s
-        // so the flying pose + jetpack flames are clearly seen, not a blur.
+        // Slow, visible fly up toward the moon — lengthened further per
+        // request so the flying pose + jetpack flames are unmistakably clear.
         tl.to(wrapper.position, {
           y: seatPosition[1] + 14,
           x: seatPosition[0] + 1.5,
           z: seatPosition[2] + 18,
-          duration: 1.9,
+          duration: 2.6,
           ease: 'power1.inOut',
         });
         // Descend onto the seat
@@ -86,7 +85,7 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
           x: seatPosition[0],
           y: seatPosition[1],
           z: seatPosition[2],
-          duration: 1.5,
+          duration: 2.2,
           ease: 'power3.out',
         });
         // Jetpack detaches, play landing animation, then settle
@@ -99,7 +98,7 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
           duration: 0.4,
           ease: 'power2.out',
         }, '-=0.4');
-      }, 2000);
+      }, 3100);
     },
     [seatPosition]
   );
@@ -118,7 +117,7 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
       const tl = gsap.timeline({
         onComplete: () => {
           setPhase('hopping');
-          setTimeout(() => setPhase('idle'), 2000);
+          setTimeout(() => setPhase('idle'), 3100);
         },
       });
 
@@ -135,12 +134,12 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
         setPhase('flying');
         onMidFlight?.();
       });
-      // Slow, visible fly back — 1.9s to match launch
+      // Slow, visible fly back — matches the launch's lengthened duration
       tl.to(wrapper.position, {
         x: 0,
         y: 2,
         z: -2,
-        duration: 1.9,
+        duration: 2.6,
         ease: 'power1.inOut',
       });
       // Jet dive back to cube tops

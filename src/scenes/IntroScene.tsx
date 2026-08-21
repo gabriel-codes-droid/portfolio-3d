@@ -1,6 +1,6 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Stars, useGLTF, useFBX } from '@react-three/drei';
+import { Stars, useFBX } from '@react-three/drei';
 import type { Group } from 'three';
 import * as THREE from 'three';
 import FloatingCube from '../components/FloatingCube';
@@ -29,12 +29,16 @@ const HOP_WAYPOINTS: [number, number, number][] = [
   [6.4, -1.9, -2.7],
 ];
 
-const HOP_CUBES: CubeSpec[] = HOP_WAYPOINTS.map((point, index) => ({
+const HOP_CUBES: (CubeSpec & { stationary: true })[] = HOP_WAYPOINTS.map((point, index) => ({
   position: [point[0], point[1] - 0.8, point[2]],
   size: 1.6,
   color: index % 2 === 0 ? '#8b5cf6' : '#22d3ee',
   speed: 0.34 + index * 0.05,
   index: 100 + index,
+  // These are the platforms the character actually stands/hops on — they
+  // must stay put, or his feet visually drift apart from the surface as
+  // the cube swims around independently underneath him.
+  stationary: true,
 }));
 
 // A hand-composed, balanced frame around the route. No random placement.

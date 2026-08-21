@@ -21,6 +21,11 @@ interface FloatingCubeProps {
   color: string;
   speed: number;
   index: number;
+  /** Skips the idle position drift — use for platforms the character
+   * actually stands/hops on, so its feet stay locked to the surface instead
+   * of the cube swimming independently underneath it. Rotation/pulse/glow
+   * still animate normally, just not position. */
+  stationary?: boolean;
 }
 
 export default function FloatingCube({ 
@@ -28,7 +33,8 @@ export default function FloatingCube({
   size, 
   color, 
   speed, 
-  index 
+  index,
+  stationary = false,
 }: FloatingCubeProps) {
   const mesh = useRef<Mesh>(null);
   const core = useRef<Mesh>(null);
@@ -41,11 +47,15 @@ export default function FloatingCube({
       mesh.current.rotation.x += speed * 0.01;
       mesh.current.rotation.y += speed * 0.015;
       
-      // Floating motion
+      // Floating motion — skipped for stationary (hop-platform) cubes
       const time = state.clock.getElapsedTime();
-      mesh.current.position.x = position[0] + Math.sin(time * speed + index) * randomFactor;
-      mesh.current.position.y = position[1] + Math.cos(time * speed * 0.7 + index) * randomFactor;
-      mesh.current.position.z = position[2] + Math.sin(time * speed * 0.5 + index) * randomFactor;
+      if (stationary) {
+        mesh.current.position.set(position[0], position[1], position[2]);
+      } else {
+        mesh.current.position.x = position[0] + Math.sin(time * speed + index) * randomFactor;
+        mesh.current.position.y = position[1] + Math.cos(time * speed * 0.7 + index) * randomFactor;
+        mesh.current.position.z = position[2] + Math.sin(time * speed * 0.5 + index) * randomFactor;
+      }
       
       // Pulsing effect
       const scale = 1 + Math.sin(time * 2 + index) * 0.05;

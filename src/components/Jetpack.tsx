@@ -32,7 +32,7 @@ export default function Jetpack({ position, visible }: JetpackProps) {
     group.current.scale.setScalar(settle * overshoot);
   });
 
-  const { scene } = useGLTF('/models/jetpack/source/Jetpack.glb');
+  const { scene } = useGLTF('/models/jetpack/Jetpack.glb');
   const model = useMemo(() => scene.clone(true), [scene]);
 
   return (
@@ -42,4 +42,4 @@ export default function Jetpack({ position, visible }: JetpackProps) {
   );
 }
 
-useGLTF.preload('/models/jetpack/source/Jetpack.glb');
+useGLTF.preload('/models/jetpack/Jetpack.glb');

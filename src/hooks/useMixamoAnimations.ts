@@ -3,24 +3,22 @@ import { useFBX } from '@react-three/drei';
 import * as THREE from 'three';
 
 /**
- * Loads the 5 Mixamo FBX animation clips and prepares them for retargeting
- * onto our character.glb (which is already Mixamo-rigged — bone names use
- * the "mixamorig" prefix WITHOUT a colon, matching the FBX track names
- * exactly since FBXLoader strips the colon).
- *
- * Root motion is stripped from each clip's hip bone: our own code already
- * moves the character between hop waypoints / from cubes to the moon, so
- * baked-in translation from the FBX would fight that and cause sliding.
- * Only the skeletal *pose* (rotation) is kept.
+ * Loads the 5 Mixamo FBX animation clips. Bone-name remapping to match
+ * character.glb's actual skeleton happens in Mannequin.tsx (it needs the
+ * loaded character to know the real names) — this hook only handles loading
+ * and stripping root motion, in a way that doesn't assume any particular
+ * naming convention (colon vs no colon), since guessing that wrong is
+ * exactly what caused animations to silently have zero visible effect
+ * before: the track names simply didn't match any bone in the skeleton.
  */
-
-function stripRootMotion(clip: THREE.AnimationClip, rootBoneName = 'mixamorigHips') {
+function stripRootMotion(clip: THREE.AnimationClip) {
   clip.tracks = clip.tracks.filter((track) => {
-    // Drop the root bone's position track entirely; keep everything else
-    // (including the root bone's rotation tracks, and every other
-    // bone's tracks) so the pose still plays, just without drifting away.
-    const isRootPosition = track.name === `${rootBoneName}.position`;
-    return !isRootPosition;
+    if (!track.name.endsWith('.position')) return true;
+    const nodeName = track.name.slice(0, track.name.lastIndexOf('.'));
+    // Match the root/hip bone regardless of exact naming convention
+    // ("mixamorig:Hips", "mixamorigHips", "Hips", etc.)
+    const isRootBone = /hips?$/i.test(nodeName.replace(/[:_.]/g, ''));
+    return !isRootBone;
   });
   return clip;
 }
