@@ -11,9 +11,10 @@ interface UseMannequinJourneyOptions {
 
 /**
  * Orchestrates the mannequin's journey. Starts idle (standing still) until
- * `launch()` is called — then it hops across the cube field, ignites its
- * jetpack immediately after the hop, and flies down to the moon's seat.
- * The whole jump-to-flight sequence takes ~950ms instead of ~4s.
+ * `launch()` is called — then it hops across the cube field (slow-motion,
+ * ~3s), ignites its jetpack, and flies down to the moon's seat (slow-motion,
+ * ~4.8s of flight). Total sequence is deliberately several seconds, tuned
+ * for visibility per explicit request — not fast.
  *
  * `returnHome()` reverses the trip. Both accept a callback fired at the
  * cinematic mid-flight moment, so the caller can cut the screen/scene
@@ -49,20 +50,26 @@ export function useMannequinJourney({ seatPosition }: UseMannequinJourneyOptions
 
         const tl = gsap.timeline({ onComplete: () => setPhase('seated') });
 
-        // Hop up with jetpack ignition
+        // Hop up with jetpack ignition. Using GSAP's string relative syntax
+        // ("+="/"-=") is essential here — plain numeric expressions like
+        // `wrapper.position.y + 2.2` get evaluated ONCE, immediately, when the
+        // timeline is built, not fresh when each tween actually starts. That
+        // caused the next tween's target to be computed from the ORIGINAL
+        // starting position instead of where this tween actually left him,
+        // producing a jarring position pop instead of continuous motion.
         tl.to(wrapper.position, {
-          y: wrapper.position.y + 2.2,
-          x: wrapper.position.x + 2.8,
-          z: wrapper.position.z + 1.2,
+          y: '+=2.2',
+          x: '+=2.8',
+          z: '+=1.2',
           duration: 0.28,
           ease: 'power2.out',
           onStart: () => setPhase('launching'),
         });
-        // Land the hop
+        // Land the hop — relative to wherever the tween above actually ended
         tl.to(wrapper.position, {
-          y: wrapper.position.y - 2.2,
-          x: wrapper.position.x + 5.6,
-          z: wrapper.position.z + 2.4,
+          y: '-=2.2',
+          x: '+=2.8',
+          z: '+=1.2',
           duration: 0.28,
           ease: 'power2.in',
         });

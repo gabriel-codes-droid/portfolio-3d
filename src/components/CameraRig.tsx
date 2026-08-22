@@ -14,11 +14,10 @@ export default function CameraRig({ view }: CameraRigProps) {
 
   useEffect(() => {
     if (view === 'intro') {
-      reset([0, 0, 10], [0, 0, 0], 1.6);
+      reset([0, 0, 8], [0, 0, 0], 1.6);
     } else {
-      // Zoomed in noticeably closer than before (was z=26) so the moon and
-      // seated character read clearly instead of looking tiny and distant.
-      reset([0, 1.5, 15], [0, -1, -2], 2.2);
+      // Zoomed in a bit further per request (was z=15)
+      reset([0, 1.3, 12], [0, -1, -2], 2.2);
     }
   }, [view, reset]);
 

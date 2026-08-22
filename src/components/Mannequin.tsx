@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { useGLTF, useAnimations } from '@react-three/drei';
+import { useGLTF, useAnimations, useFBX } from '@react-three/drei';
 import * as THREE from 'three';
 import { useMixamoAnimations, type MixamoClipName } from '../hooks/useMixamoAnimations';
 
@@ -16,20 +16,9 @@ interface MannequinProps {
 }
 
 const HOP_DURATION = 3.0; // seconds per hop — dialed to ~3s per request
-// Candidate back-bone names to try, checked against the REAL skeleton via
-// buildBoneNameMap below (not hardcoded exact-string matches) — handles
-// either naming convention ("mixamorig:Spine2" or "mixamorigSpine2").
 const BACK_BONE_CANDIDATES = ['mixamorigspine2', 'mixamorigspine1', 'mixamorigspine'];
 const JETPACK_PATH = '/models/jetpack/Jetpack.glb';
 
-/**
- * Maps a de-punctuated, lowercased bone name (e.g. "mixamorighips") to its
- * REAL name in this specific skeleton (e.g. "mixamorig:Hips" or
- * "mixamorigHips", whichever this particular export actually used). This is
- * what makes animation retargeting work regardless of naming convention,
- * instead of assuming one and silently binding zero tracks if wrong — which
- * is exactly what caused the animations to have no visible effect before.
- */
 function buildBoneNameMap(root: THREE.Object3D): Map<string, string> {
   const map = new Map<string, string>();
   root.traverse((child) => {
@@ -40,9 +29,6 @@ function buildBoneNameMap(root: THREE.Object3D): Map<string, string> {
   return map;
 }
 
-/** Rewrites every track's target name in a clip to match the real skeleton's
- * actual bone names, via the map above, so THREE's PropertyBinding can find
- * and bind every track instead of silently matching nothing. */
 function remapClipToSkeleton(clip: THREE.AnimationClip, boneNameMap: Map<string, string>): THREE.AnimationClip {
   const remapped = clip.clone();
   remapped.tracks.forEach((track) => {
@@ -59,12 +45,6 @@ function remapClipToSkeleton(clip: THREE.AnimationClip, boneNameMap: Map<string,
   return remapped;
 }
 
-// Module-level constant, NOT recreated per-render — this used to be defined
-// inside the component body, which meant the crossfade effect's dependency
-// array saw a new object identity on every render (even unrelated ones) and
-// kept calling .reset() on the current animation, snapping it back to frame
-// 0 before it could ever visibly play. That's what was causing the frozen
-// T-pose look.
 const PHASE_TO_CLIP: Record<MannequinPhase, MixamoClipName | null> = {
   idle: 'idle',
   hopping: 'hop',
@@ -84,8 +64,6 @@ function findBackBone(boneNameMap: Map<string, string>, root: THREE.Object3D): T
   return null;
 }
 
-/** Hides any mesh in the jetpack model whose name suggests it's the bundled
- * weapon prop rather than the jetpack itself. */
 function hideUnwantedProps(root: THREE.Object3D) {
   root.traverse((child) => {
     if (/bazooka|weapon/i.test(child.name)) {
@@ -94,12 +72,6 @@ function hideUnwantedProps(root: THREE.Object3D) {
   });
 }
 
-/**
- * Builds the jetpack flame meshes as Object3D so they can be parented
- * directly under the spine bone (via the jetpack clone). This gives
- * true skeletal attachment — flames move with the spine during the
- * flying pose, not a fixed position on the character root.
- */
 function createFlameGroup(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'jetpack-flames';
@@ -139,13 +111,54 @@ export default function Mannequin({ phase, hopPoints, hopPositionRef }: Mannequi
   const hopIndex = useRef(0);
   const hopStart = useRef<number | null>(null);
 
-  const { scene: characterScene, animations: characterBuiltinAnims } = useGLTF('/models/character.glb');
+  // Use the character from idle.fbx to ensure skeleton matches animations
+  const { scene: characterScene, animations: characterBuiltinAnims } = useFBX('/models/idle.fbx');
   const { scene: jetpackScene } = useGLTF(JETPACK_PATH);
   const clips = useMixamoAnimations();
 
+  if (!characterScene || !jetpackScene || !clips.idle || !clips.hop || !clips.flying || !clips.landing || !clips.seated) {
+    return null;
+  }
+
+  return (
+    <MannequinReady
+      {...props}
+      characterScene={characterScene}
+      characterBuiltinAnims={characterBuiltinAnims}
+      jetpackScene={jetpackScene}
+      clips={clips}
+    />
+  );
+}
+
+interface MannequinReadyProps extends MannequinProps {
+  characterScene: THREE.Object3D;
+  characterBuiltinAnims: THREE.AnimationClip[];
+  jetpackScene: THREE.Object3D;
+  clips: Record<MixamoClipName, THREE.AnimationClip>;
+}
+
+function MannequinReady({
+  phase,
+  hopPoints,
+  hopPositionRef,
+  characterScene,
+  characterBuiltinAnims,
+  jetpackScene,
+  clips,
+}: MannequinReadyProps) {
+  const group = useRef<THREE.Group>(null);
+  const hopIndex = useRef(0);
+  const hopStart = useRef<number | null>(null);
+
   // Clone the loaded scenes so multiple Mannequin instances (if ever) don't
   // fight over the same Object3D graph.
-  const character = useMemo(() => characterScene.clone(true), [characterScene]);
+  const character = useMemo(() => {
+    const cloned = characterScene.clone(true);
+    // Scale down the FBX character to match the scene scale
+    cloned.scale.setScalar(0.01);
+    return cloned;
+  }, [characterScene]);
   const boneNameMap = useMemo(() => buildBoneNameMap(character), [character]);
 
   // Remap every clip's track names to match this character's REAL bone
@@ -153,20 +166,22 @@ export default function Mannequin({ phase, hopPoints, hopPositionRef }: Mannequi
   // playing. Without it, FBXLoader's stripped-colon track names
   // ("mixamorigHips") never matched GLTFLoader's preserved bone names
   // ("mixamorig:Hips"), so every track silently bound to nothing.
-  const remappedClips = useMemo(() => ({
-    idle: remapClipToSkeleton(clips.idle, boneNameMap),
-    hop: remapClipToSkeleton(clips.hop, boneNameMap),
-    flying: remapClipToSkeleton(clips.flying, boneNameMap),
-    landing: remapClipToSkeleton(clips.landing, boneNameMap),
-    seated: remapClipToSkeleton(clips.seated, boneNameMap),
-  }), [clips, boneNameMap]);
+  const remappedClips = useMemo(() => {
+    const idle = remapClipToSkeleton(clips.idle, boneNameMap);
+    const hop = remapClipToSkeleton(clips.hop, boneNameMap);
+    const flying = remapClipToSkeleton(clips.flying, boneNameMap);
+    const landing = remapClipToSkeleton(clips.landing, boneNameMap);
+    const seated = remapClipToSkeleton(clips.seated, boneNameMap);
+    
+    return { idle, hop, flying, landing, seated };
+  }, [clips, boneNameMap]);
 
   // Build the jetpack model once, including flame meshes attached as children
   // so they follow the spine bone's animated transform.
   const jetpack = useMemo(() => {
     const cloned = jetpackScene.clone(true);
     hideUnwantedProps(cloned);
-    cloned.scale.setScalar(0.6);
+    cloned.scale.setScalar(0.5);
     cloned.position.set(0, 0, -0.05);
     cloned.rotation.set(0, Math.PI, 0);
 
@@ -346,10 +361,7 @@ export default function Mannequin({ phase, hopPoints, hopPositionRef }: Mannequi
 
   return (
     <group ref={group}>
-      <primitive object={character} scale={1} />
+      <primitive object={character} />
     </group>
   );
 }
-
-useGLTF.preload('/models/character.glb');
-useGLTF.preload(JETPACK_PATH);

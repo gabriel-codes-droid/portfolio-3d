@@ -1,6 +1,6 @@
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Environment, useGLTF } from '@react-three/drei';
+import { Environment, useGLTF, useFBX, useProgress } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { gsap } from 'gsap';
 import IntroScene from './scenes/IntroScene';
@@ -14,33 +14,31 @@ import Jetpack from './components/Jetpack';
 import HDRIEnvironment from './components/HDRIEnvironment';
 import { useMannequinJourney } from './hooks/useMannequinJourney';
 import type { Project } from './data/projects';
+import { MOON_CENTER, MOON_RADIUS } from './moonConstants';
 
-// The moon is a sphere of radius MOON_RADIUS centered at MOON_CENTER (see
-// ProjectSystems.tsx <Moon position={[0,-5,0]} size={3}/>). The seat position
-// below is computed to sit exactly ON that sphere's surface, near the top
-// and slightly toward the camera, so the mannequin doesn't clip through or
-// float above the terrain.
-const MOON_CENTER: [number, number, number] = [0, -5, 0];
-const MOON_RADIUS = 3;
-// ~20° from straight up, tilted toward the camera (+z)
-const SEAT_DIR: [number, number, number] = [0, 0.9397, 0.342];
+// The seat position is computed to sit exactly ON the moon's actual
+// rendered surface (see MoonModel.tsx, which auto-scales to MOON_RADIUS) —
+// at the exact center/top so the mannequin sits in the middle of the moon.
 const MOON_SEAT_POSITION: [number, number, number] = [
-  MOON_CENTER[0] + MOON_RADIUS * SEAT_DIR[0],
-  MOON_CENTER[1] + MOON_RADIUS * SEAT_DIR[1],
-  MOON_CENTER[2] + MOON_RADIUS * SEAT_DIR[2],
+  MOON_CENTER[0],
+  MOON_CENTER[1] + MOON_RADIUS,
+  MOON_CENTER[2],
 ];
 // Just beside the seat, same distance from center so it also rests on the surface
 const JETPACK_DROP_POSITION: [number, number, number] = [
-  MOON_SEAT_POSITION[0] + 0.85,
-  // The supplied model's origin is at its feet only after accounting for
-  // its 0.42 display scale, so lower it onto the curved moon surface.
-  MOON_SEAT_POSITION[1] - 0.42,
-  MOON_SEAT_POSITION[2] - 0.15,
+  MOON_SEAT_POSITION[0] + 1.5,
+  // Lower it to sit on the moon surface
+  MOON_SEAT_POSITION[1] - 0.3,
+  MOON_SEAT_POSITION[2] + 0.5,
 ];
 
 useGLTF.preload('/models/moon.glb');
-useGLTF.preload('/models/character.glb');
 useGLTF.preload('/models/jetpack/Jetpack.glb');
+useFBX.preload('/models/idle.fbx');
+useFBX.preload('/models/flying.fbx');
+useFBX.preload('/models/landing.fbx');
+useFBX.preload('/models/jump.fbx');
+useFBX.preload('/models/sitting.fbx');
 
 function App() {
   const [currentView, setCurrentView] = useState<'intro' | 'projects'>('intro');
@@ -48,6 +46,15 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [hopWaypoints, setHopWaypoints] = useState<[number, number, number][]>([[0, 0, 0]]);
   const [navApi, setNavApi] = useState<PlanetNavAPI | null>(null);
+
+  // Tracks the real state of every drei/THREE loader (character, animations,
+  // jetpack, moon, HDRI). Previously clicking "View Projects" before these
+  // finished loading meant the mannequin's Suspense boundary rendered
+  // nothing at all — the click registered instantly, but there was simply
+  // nothing to see yet, which looked like an unexplained delay. Disabling
+  // the button until this hits 100 makes the wait visible instead of silent.
+  const { progress } = useProgress();
+  const assetsReady = progress >= 100;
 
   // Opaque black wipe used ONLY for the intro <-> projects cinematic cut.
   // Starts fully transparent — this used to default to visible and blur/darken
@@ -197,9 +204,10 @@ function App() {
         <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-20 flex flex-wrap justify-center gap-4">
           <button 
             onClick={handleViewProjects}
-            className="px-8 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 rounded-full text-lg font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/50"
+            disabled={!assetsReady}
+            className="px-8 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 rounded-full text-lg font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none"
           >
-            View Projects
+            {assetsReady ? 'View Projects' : `Loading… ${Math.round(progress)}%`}
           </button>
           <a
             href="mailto:hello@innocent.dev"

@@ -72,8 +72,10 @@ export default function ProjectSystems({ onProjectSelect, onNavReady }: ProjectS
       <ambientLight intensity={0.4} />
       <directionalLight position={[10, 10, 5]} intensity={1} />
 
-      {/* Moon */}
-      <MoonModel position={[0, -5, 0]} scale={1} />
+      {/* Moon — auto-scaled in MoonModel.tsx to match MOON_RADIUS from the
+          shared moonConstants.ts, so its visual size always matches what
+          App.tsx assumes for the mannequin's seat-position math. */}
+      <MoonModel position={[0, -5, 0]} />
 
       {/* Orbiting Planets — drag left/right (or use the arrow buttons) to browse, click to fly in */}
       <group ref={groupRef}>
